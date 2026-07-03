@@ -1,0 +1,24 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# Archivos generados por la aplicación
+app/output/
+
+# Logs
+*.log
+
+# Archivos temporales
+*.tmp
+*.swp
+
+# Configuración del sistema/editor
+.DS_Store
+.vscode/
+
+# Variables y secretos
+.env
+*.env
