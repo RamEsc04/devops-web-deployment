@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devops-web-deployment
+  namespace: web-qa
+  labels:
+    app: devops-web
+    environment: qa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devops-web
+      environment: qa
+  template:
+    metadata:
+      labels:
+        app: devops-web
+        environment: qa
+    spec:
+      containers:
+        - name: web
+          image: devops-web-deployment:qa
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
