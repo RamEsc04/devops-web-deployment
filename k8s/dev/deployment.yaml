@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devops-web-deployment
+  namespace: web-dev
+  labels:
+    app: devops-web
+    environment: dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devops-web
+      environment: dev
+  template:
+    metadata:
+      labels:
+        app: devops-web
+        environment: dev
+    spec:
+      containers:
+        - name: web
+          image: devops-web-deployment:dev
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
