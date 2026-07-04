@@ -1,0 +1,7 @@
+Proyecto: devops-web-deployment
+Ambiente: DEV
+Namespace: web-dev
+Imagen Docker: devops-web-deployment:dev
+Replicas: 1
+NodePort: 30081
+Plataforma: Minikube

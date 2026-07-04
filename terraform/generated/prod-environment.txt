@@ -1,0 +1,7 @@
+Proyecto: devops-web-deployment
+Ambiente: PROD
+Namespace: web-prod
+Imagen Docker: devops-web-deployment:prod
+Replicas: 2
+NodePort: 30083
+Plataforma: Minikube

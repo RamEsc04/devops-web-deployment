@@ -1,0 +1,7 @@
+Proyecto: devops-web-deployment
+Ambiente: QA
+Namespace: web-qa
+Imagen Docker: devops-web-deployment:qa
+Replicas: 1
+NodePort: 30082
+Plataforma: Minikube
