@@ -1,6 +1,9 @@
 pipeline {
     agent {
-    label 'ubuntu-devops'
+    node {
+        label 'ubuntu-devops'
+        customWorkspace '/home/vboxuser/labs/devops-web-deployment'
+    }
 }
 
     parameters {
