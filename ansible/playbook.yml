@@ -1,0 +1,60 @@
+---
+- name: Preparar entorno local para proyecto DevOps
+  hosts: local
+  gather_facts: true
+
+  tasks:
+    - name: Mostrar sistema operativo
+      ansible.builtin.debug:
+        msg: "Sistema: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+    - name: Crear directorio del proyecto
+      ansible.builtin.file:
+        path: /home/vboxuser/labs/devops-web-deployment
+        state: directory
+        mode: "0755"
+
+    - name: Verificar Git
+      ansible.builtin.command: git --version
+      register: git_version
+      changed_when: false
+
+    - name: Mostrar versión de Git
+      ansible.builtin.debug:
+        var: git_version.stdout
+
+    - name: Verificar Docker
+      ansible.builtin.command: docker --version
+      register: docker_version
+      changed_when: false
+
+    - name: Mostrar versión de Docker
+      ansible.builtin.debug:
+        var: docker_version.stdout
+
+    - name: Verificar kubectl
+      ansible.builtin.command: kubectl version --client
+      register: kubectl_version
+      changed_when: false
+
+    - name: Mostrar versión de kubectl
+      ansible.builtin.debug:
+        var: kubectl_version.stdout
+
+    - name: Verificar Minikube
+      ansible.builtin.command: minikube version
+      register: minikube_version
+      changed_when: false
+
+    - name: Mostrar versión de Minikube
+      ansible.builtin.debug:
+        var: minikube_version.stdout
+
+    - name: Verificar namespaces del proyecto
+      ansible.builtin.command: kubectl get namespaces
+      register: namespaces
+      changed_when: false
+
+    - name: Mostrar namespaces
+      ansible.builtin.debug:
+        var: namespaces.stdout_lines
