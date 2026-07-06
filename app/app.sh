@@ -15,7 +15,7 @@ cat > app/output/index.html <<EOF
     <h1>Proyecto final DevOps</h1>
     <p>Aplicación desplegada mediante Docker y Kubernetes.</p>
     <p>Ambiente: ${APP_ENV:-local}</p>
-    <p>Versión: ${APP_VERSION:-1.0.0}</p>
+    <p>Versión: ${APP_VERSION:-1.1.0}</p>
 </body>
 </html>
 EOF
