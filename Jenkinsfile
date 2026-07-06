@@ -16,6 +16,21 @@ pipeline {
     }
 
     stages {
+	stage('Verificar agente') {
+    steps {
+        sh '''
+            whoami
+            hostname
+            git --version
+            docker --version
+            shellcheck --version
+            terraform --version
+            ansible --version
+            kubectl version --client
+            minikube version
+        '''
+    }
+}
         stage('Preparar variables') {
             steps {
                 script {
