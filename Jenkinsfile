@@ -35,38 +35,39 @@ pipeline {
     }
 }
         stage('Preparar variables') {
-            steps {
-                script {
-                    switch (params.DEPLOY_ENV) {
-                        case 'dev':
-                            env.APP_VERSION = '1.0.0-dev'
-                            env.NAMESPACE = 'web-dev'
-                            break
+    steps {
+        script {
+            env.DEPLOY_ENV = params.DEPLOY_ENV
 
-                        case 'qa':
-                            env.APP_VERSION = '1.0.0-rc'
-                            env.NAMESPACE = 'web-qa'
-                            break
+            switch (env.DEPLOY_ENV) {
+                case 'dev':
+                    env.APP_VERSION = '1.0.0-dev'
+                    env.NAMESPACE = 'web-dev'
+                    break
 
-                        case 'prod':
-                            env.APP_VERSION = '1.0.0'
-                            env.NAMESPACE = 'web-prod'
-                            break
+                case 'qa':
+                    env.APP_VERSION = '1.0.0-rc'
+                    env.NAMESPACE = 'web-qa'
+                    break
 
-                        default:
-                            error("Ambiente no válido: ${params.DEPLOY_ENV}")
-                    }
+                case 'prod':
+                    env.APP_VERSION = '1.0.0'
+                    env.NAMESPACE = 'web-prod'
+                    break
 
-                    env.IMAGE_NAME =
-                        "${env.PROJECT_NAME}:${params.DEPLOY_ENV}"
-                }
-
-                echo "Ambiente: ${DEPLOY_ENV}"
-                echo "Versión: ${APP_VERSION}"
-                echo "Namespace: ${NAMESPACE}"
-                echo "Imagen: ${IMAGE_NAME}"
+                default:
+                    error("Ambiente no válido: ${env.DEPLOY_ENV}")
             }
+
+            env.IMAGE_NAME = "${env.PROJECT_NAME}:${env.DEPLOY_ENV}"
         }
+
+        echo "Ambiente: ${env.DEPLOY_ENV}"
+        echo "Versión: ${env.APP_VERSION}"
+        echo "Namespace: ${env.NAMESPACE}"
+        echo "Imagen: ${env.IMAGE_NAME}"
+    }
+}
 
         stage('Validar Shell') {
             steps {
