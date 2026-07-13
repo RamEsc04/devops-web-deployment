@@ -15,6 +15,13 @@ on:
 
 jobs:
   deploy:
+    environment:
+      name: ${{ inputs.environment }}
+
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+
     runs-on:
       - self-hosted
       - linux
