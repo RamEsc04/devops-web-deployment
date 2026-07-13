@@ -1,24 +1,11 @@
-# Terraform
-.terraform/
-*.tfstate
-*.tfstate.*
-*.tfplan
-crash.log
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
 
-# Archivos generados por la aplicación
-app/output/
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform@tmp/
 
-# Logs
-*.log
-
-# Archivos temporales
-*.tmp
-*.swp
-
-# Configuración del sistema/editor
-.DS_Store
-.vscode/
-
-# Variables y secretos
 .env
-*.env

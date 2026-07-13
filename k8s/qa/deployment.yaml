@@ -23,7 +23,7 @@ spec:
           image: devops-web-deployment:qa
           imagePullPolicy: Never
           ports:
-            - containerPort: 80
+            - containerPort: 5000
           resources:
             requests:
               cpu: "50m"
