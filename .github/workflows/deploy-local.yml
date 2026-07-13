@@ -2,9 +2,19 @@ name: CD - Deploy to Local Minikube
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente a desplegar"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
 
 jobs:
-  deploy-dev:
+  deploy:
     runs-on:
       - self-hosted
       - linux
@@ -14,6 +24,38 @@ jobs:
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
+      - name: Definir variables del ambiente
+        run: |
+          ENVIRONMENT="${{ inputs.environment }}"
+
+          echo "ENVIRONMENT=$ENVIRONMENT" >> "$GITHUB_ENV"
+          echo "NAMESPACE=web-$ENVIRONMENT" >> "$GITHUB_ENV"
+          echo "IMAGE_NAME=devops-web-deployment" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=$ENVIRONMENT-${{ github.run_number }}" >> "$GITHUB_ENV"
+
+          case "$ENVIRONMENT" in
+            dev)
+              echo "NODE_PORT=30081" >> "$GITHUB_ENV"
+              ;;
+            qa)
+              echo "NODE_PORT=30082" >> "$GITHUB_ENV"
+              ;;
+            prod)
+              echo "NODE_PORT=30083" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "Ambiente no válido"
+              exit 1
+              ;;
+          esac
+
+      - name: Mostrar configuración
+        run: |
+          echo "Ambiente: $ENVIRONMENT"
+          echo "Namespace: $NAMESPACE"
+          echo "Imagen: $IMAGE_NAME:$IMAGE_TAG"
+          echo "NodePort: $NODE_PORT"
+
       - name: Verificar herramientas
         run: |
           docker --version
@@ -22,50 +64,72 @@ jobs:
           minikube status
           kubectl get nodes
 
-      - name: Crear namespace de desarrollo
+      - name: Crear namespace
         run: |
-          kubectl create namespace web-dev \
+          kubectl create namespace "$NAMESPACE" \
             --dry-run=client \
             -o yaml | kubectl apply -f -
 
       - name: Construir imagen Docker
         run: |
           docker build \
-            -t devops-web-deployment:${{ github.run_number }} \
+            -t "$IMAGE_NAME:$IMAGE_TAG" \
             -f docker/Dockerfile \
             .
 
       - name: Cargar imagen en Minikube
         run: |
-          minikube image load \
-            devops-web-deployment:${{ github.run_number }}
+          minikube image load "$IMAGE_NAME:$IMAGE_TAG"
 
-      - name: Aplicar manifiestos de desarrollo
+      - name: Aplicar manifiestos Kubernetes
         run: |
-          kubectl apply -f k8s/dev/deployment.yaml
-          kubectl apply -f k8s/dev/service.yaml
+          kubectl apply \
+            -f "k8s/$ENVIRONMENT/deployment.yaml"
+
+          kubectl apply \
+            -f "k8s/$ENVIRONMENT/service.yaml"
 
       - name: Actualizar imagen del Deployment
         run: |
           kubectl set image \
             deployment/devops-web-deployment \
-            web=devops-web-deployment:${{ github.run_number }} \
-            -n web-dev
+            web="$IMAGE_NAME:$IMAGE_TAG" \
+            -n "$NAMESPACE"
 
       - name: Verificar rollout
         run: |
           kubectl rollout status \
             deployment/devops-web-deployment \
-            -n web-dev \
+            -n "$NAMESPACE" \
             --timeout=120s
 
       - name: Mostrar recursos
         run: |
-          kubectl get deployments -n web-dev
-          kubectl get pods -n web-dev
-          kubectl get services -n web-dev
+          kubectl get deployments -n "$NAMESPACE"
+          kubectl get pods -n "$NAMESPACE"
+          kubectl get services -n "$NAMESPACE"
 
-      - name: Mostrar URL local
+      - name: Probar health check
         run: |
-          echo "URL de desarrollo:"
-          echo "http://$(minikube ip):30081"
+          URL="http://$(minikube ip):$NODE_PORT"
+
+          echo "Probando $URL/health"
+
+          for intento in 1 2 3 4 5; do
+            if curl --fail --silent "$URL/health"; then
+              echo
+              echo "Health check correcto"
+              exit 0
+            fi
+
+            echo "Intento $intento fallido. Esperando..."
+            sleep 5
+          done
+
+          echo "La aplicación no respondió correctamente"
+          exit 1
+
+      - name: Mostrar URL
+        run: |
+          echo "Aplicación desplegada en:"
+          echo "http://$(minikube ip):$NODE_PORT"
