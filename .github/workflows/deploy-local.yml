@@ -1,0 +1,71 @@
+name: CD - Deploy to Local Minikube
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy-dev:
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Verificar herramientas
+        run: |
+          docker --version
+          kubectl version --client
+          minikube version
+          minikube status
+          kubectl get nodes
+
+      - name: Crear namespace de desarrollo
+        run: |
+          kubectl create namespace web-dev \
+            --dry-run=client \
+            -o yaml | kubectl apply -f -
+
+      - name: Construir imagen Docker
+        run: |
+          docker build \
+            -t devops-web-deployment:${{ github.run_number }} \
+            -f docker/Dockerfile \
+            .
+
+      - name: Cargar imagen en Minikube
+        run: |
+          minikube image load \
+            devops-web-deployment:${{ github.run_number }}
+
+      - name: Aplicar manifiestos de desarrollo
+        run: |
+          kubectl apply -f k8s/dev/deployment.yaml
+          kubectl apply -f k8s/dev/service.yaml
+
+      - name: Actualizar imagen del Deployment
+        run: |
+          kubectl set image \
+            deployment/devops-web-deployment \
+            web=devops-web-deployment:${{ github.run_number }} \
+            -n web-dev
+
+      - name: Verificar rollout
+        run: |
+          kubectl rollout status \
+            deployment/devops-web-deployment \
+            -n web-dev \
+            --timeout=120s
+
+      - name: Mostrar recursos
+        run: |
+          kubectl get deployments -n web-dev
+          kubectl get pods -n web-dev
+          kubectl get services -n web-dev
+
+      - name: Mostrar URL local
+        run: |
+          echo "URL de desarrollo:"
+          echo "http://$(minikube ip):30081"
