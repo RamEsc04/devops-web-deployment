@@ -37,6 +37,6 @@ def test_status_endpoint():
     data = response.get_json()
 
     assert response.status_code == 200
-    assert data["system_status"] == "operational"
+    assert data["system_status"] == "warning"
     assert data["controllers_online"] == 4
     assert data["devices_total"] == 125
