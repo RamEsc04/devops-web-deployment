@@ -1,6 +1,8 @@
 import os
 from datetime import datetime, timezone
 
+import requests
+
 from flask import (
     Flask,
     jsonify,
@@ -14,6 +16,20 @@ app = Flask(__name__)
 
 APP_ENV = os.getenv("APP_ENV", "dev")
 APP_VERSION = os.getenv("APP_VERSION", "1.0.0-dev")
+
+WEATHER_API_URL = "https://api.open-meteo.com/v1/forecast"
+WEATHER_LATITUDE = float(os.getenv("WEATHER_LATITUDE", "25.6866"))
+WEATHER_LONGITUDE = float(os.getenv("WEATHER_LONGITUDE", "-100.3161"))
+WEATHER_TIMEZONE = os.getenv("WEATHER_TIMEZONE", "America/Monterrey")
+
+DAYLIGHTING_STATE = {
+    "available": False,
+    "is_day": None,
+    "cloud_cover": None,
+    "recommendation": "Ajuste automático no ejecutado",
+    "last_update": None,
+    "error": None,
+}
 
 DEVICES_OFFLINE = 3
 
@@ -195,6 +211,41 @@ HTML_TEMPLATE = """
             font-weight: bold;
         }
 
+        .daylighting-panel {
+            margin-top: 20px;
+            padding: 20px;
+            border-radius: 8px;
+            background: white;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.10);
+        }
+
+        .daylighting-panel h2 {
+            margin-top: 0;
+        }
+
+        .daylighting-button {
+            border: none;
+            border-radius: 5px;
+            padding: 10px 16px;
+            background: #059669;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .daylighting-button:hover {
+            background: #047857;
+        }
+
+        .weather-error {
+            color: #b91c1c;
+            font-weight: bold;
+        }
+
+        .weather-result {
+            color: #374151;
+        }
+
         .footer {
             margin-top: 20px;
             color: #555555;
@@ -259,6 +310,63 @@ HTML_TEMPLATE = """
             <p>Todos los sistemas se encuentran operando normalmente.</p>
         </div>
         {% endif %}
+
+        <div class="daylighting-panel">
+            <h2>Ajuste automático de daylighting</h2>
+
+            <p>
+                Consulta Open-Meteo para detectar si es de día o de noche
+                y revisar la nubosidad antes de ajustar la iluminación.
+            </p>
+
+            <form
+                action="{{ url_for('adjust_daylighting') }}"
+                method="post"
+            >
+                <button
+                    class="daylighting-button"
+                    type="submit"
+                >
+                    Aplicar ajuste automático
+                </button>
+            </form>
+
+            {% if daylighting.error %}
+            <p class="weather-error">
+                Error: {{ daylighting.error }}
+            </p>
+            {% elif daylighting.available %}
+            <div class="weather-result">
+                <p>
+                    Momento:
+                    <strong>
+                        {% if daylighting.is_day %}
+                        Día
+                        {% else %}
+                        Noche
+                        {% endif %}
+                    </strong>
+                </p>
+
+                <p>
+                    Nubosidad:
+                    <strong>{{ daylighting.cloud_cover }}%</strong>
+                </p>
+
+                <p>
+                    Resultado:
+                    {{ daylighting.recommendation }}
+                </p>
+
+                <p>
+                    Última actualización:
+                    {{ daylighting.last_update }}
+                </p>
+            </div>
+            {% else %}
+            <p>El ajuste automático todavía no se ha ejecutado.</p>
+            {% endif %}
+        </div>
 
         <h2>Zonas de iluminación</h2>
 
@@ -413,6 +521,100 @@ def get_active_alerts():
     return alerts
 
 
+def get_weather_data():
+    parameters = {
+        "latitude": WEATHER_LATITUDE,
+        "longitude": WEATHER_LONGITUDE,
+        "current": "is_day,cloud_cover",
+        "timezone": WEATHER_TIMEZONE,
+    }
+
+    response = requests.get(
+        WEATHER_API_URL,
+        params=parameters,
+        timeout=5,
+    )
+    response.raise_for_status()
+
+    data = response.json()
+    current = data.get("current", {})
+
+    is_day = current.get("is_day")
+    cloud_cover = current.get("cloud_cover")
+
+    if is_day not in (0, 1):
+        raise ValueError(
+            "Open-Meteo no devolvió un valor válido para is_day"
+        )
+
+    if not isinstance(cloud_cover, (int, float)):
+        raise ValueError(
+            "Open-Meteo no devolvió un valor válido para cloud_cover"
+        )
+
+    return {
+        "is_day": is_day == 1,
+        "cloud_cover": float(cloud_cover),
+    }
+
+
+def calculate_daylighting_level(is_day, cloud_cover, occupancy):
+    if occupancy == "Desocupada":
+        return 10
+
+    if not is_day:
+        return 80
+
+    if cloud_cover <= 30:
+        return 30
+
+    if cloud_cover <= 70:
+        return 50
+
+    return 70
+
+
+def apply_daylighting_adjustment():
+    weather = get_weather_data()
+    is_day = weather["is_day"]
+    cloud_cover = weather["cloud_cover"]
+
+    for zone in ZONES:
+        zone["lighting"] = calculate_daylighting_level(
+            is_day=is_day,
+            cloud_cover=cloud_cover,
+            occupancy=zone["occupancy"],
+        )
+
+    if not is_day:
+        recommendation = (
+            "Es de noche. Se aumentó la iluminación de las zonas ocupadas."
+        )
+    elif cloud_cover <= 30:
+        recommendation = (
+            "Día despejado. Se redujo la iluminación artificial."
+        )
+    elif cloud_cover <= 70:
+        recommendation = (
+            "Día parcialmente nublado. Se aplicó iluminación media."
+        )
+    else:
+        recommendation = (
+            "Día nublado. Se incrementó la iluminación artificial."
+        )
+
+    DAYLIGHTING_STATE.update({
+        "available": True,
+        "is_day": is_day,
+        "cloud_cover": cloud_cover,
+        "recommendation": recommendation,
+        "last_update": datetime.now(timezone.utc).isoformat(),
+        "error": None,
+    })
+
+    return DAYLIGHTING_STATE
+
+
 @app.route("/")
 def index():
     return render_template_string(
@@ -421,7 +623,8 @@ def index():
         version=APP_VERSION,
         zones=ZONES,
         alerts=get_active_alerts(),
-        devices_offline=DEVICES_OFFLINE
+        devices_offline=DEVICES_OFFLINE,
+        daylighting=DAYLIGHTING_STATE,
     )
 
 
@@ -540,6 +743,45 @@ def api_update_occupancy(zone_name):
     }), 200
 
 
+@app.route("/daylighting/adjust", methods=["POST"])
+def adjust_daylighting():
+    try:
+        apply_daylighting_adjustment()
+    except (requests.RequestException, ValueError) as error:
+        DAYLIGHTING_STATE.update({
+            "available": False,
+            "error": str(error),
+            "last_update": datetime.now(timezone.utc).isoformat(),
+        })
+
+    return redirect(url_for("index"))
+
+
+@app.route("/api/daylighting/adjust", methods=["POST"])
+def api_adjust_daylighting():
+    try:
+        result = apply_daylighting_adjustment()
+
+        return jsonify({
+            "message": "Daylighting adjustment applied",
+            "environment": APP_ENV,
+            "daylighting": result,
+            "zones": ZONES,
+        }), 200
+
+    except requests.RequestException as error:
+        return jsonify({
+            "error": "Weather service unavailable",
+            "details": str(error),
+        }), 503
+
+    except ValueError as error:
+        return jsonify({
+            "error": "Invalid weather response",
+            "details": str(error),
+        }), 502
+
+
 @app.route("/health")
 def health():
     return jsonify({
@@ -568,6 +810,7 @@ def api_status():
         "devices_offline": DEVICES_OFFLINE,
         "active_alerts": len(alerts),
         "alerts": alerts,
+        "daylighting": DAYLIGHTING_STATE,
         "zones": ZONES
     }), 200
 
