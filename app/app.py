@@ -15,6 +15,8 @@ app = Flask(__name__)
 APP_ENV = os.getenv("APP_ENV", "dev")
 APP_VERSION = os.getenv("APP_VERSION", "1.0.0-dev")
 
+DEVICES_OFFLINE = 3
+
 ZONES = [
     {
         "name": "Oficinas",
@@ -36,7 +38,7 @@ ZONES = [
     },
     {
         "name": "Estacionamiento",
-        "occupancy": "Desocupado",
+        "occupancy": "Desocupada",
         "lighting": 40,
         "status": "Mantenimiento"
     }
@@ -59,7 +61,7 @@ HTML_TEMPLATE = """
         }
 
         .container {
-            max-width: 950px;
+            max-width: 1050px;
             margin: auto;
         }
 
@@ -86,6 +88,31 @@ HTML_TEMPLATE = """
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.10);
         }
 
+        .alert-bar {
+            margin-top: 20px;
+            padding: 16px 20px;
+            border-radius: 8px;
+            background: #fef3c7;
+            border-left: 6px solid #f59e0b;
+            color: #92400e;
+        }
+
+        .alert-bar.no-alerts {
+            background: #dcfce7;
+            border-left-color: #16a34a;
+            color: #166534;
+        }
+
+        .alert-bar h3 {
+            margin-top: 0;
+            margin-bottom: 8px;
+        }
+
+        .alert-bar ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
         table {
             width: 100%;
             margin-top: 20px;
@@ -93,10 +120,12 @@ HTML_TEMPLATE = """
             background: white;
         }
 
-        th, td {
+        th,
+        td {
             padding: 12px;
             border-bottom: 1px solid #dddddd;
             text-align: left;
+            vertical-align: middle;
         }
 
         th {
@@ -113,7 +142,8 @@ HTML_TEMPLATE = """
             font-weight: bold;
         }
 
-        .lighting-form {
+        .lighting-form,
+        .occupancy-form {
             display: flex;
             align-items: center;
             gap: 8px;
@@ -124,17 +154,45 @@ HTML_TEMPLATE = """
             padding: 7px;
         }
 
-        .update-button {
+        .occupancy-select {
+            padding: 7px;
+            border: 1px solid #cccccc;
+            border-radius: 5px;
+        }
+
+        .update-button,
+        .occupancy-button {
             border: none;
             border-radius: 5px;
             padding: 8px 12px;
-            background: #2563eb;
             color: white;
             cursor: pointer;
         }
 
+        .update-button {
+            background: #2563eb;
+        }
+
         .update-button:hover {
             background: #1d4ed8;
+        }
+
+        .occupancy-button {
+            background: #4b5563;
+        }
+
+        .occupancy-button:hover {
+            background: #374151;
+        }
+
+        .status-warning {
+            color: #b45309;
+            font-weight: bold;
+        }
+
+        .status-ok {
+            color: #15803d;
+            font-weight: bold;
         }
 
         .footer {
@@ -161,7 +219,12 @@ HTML_TEMPLATE = """
         <div class="cards">
             <div class="card">
                 <h3>Estado general</h3>
+
+                {% if alerts %}
+                <p class="status-warning">Con alertas</p>
+                {% else %}
                 <p class="online">Operativo</p>
+                {% endif %}
             </div>
 
             <div class="card">
@@ -176,9 +239,26 @@ HTML_TEMPLATE = """
 
             <div class="card">
                 <h3>Dispositivos offline</h3>
-                <p>3 dispositivos</p>
+                <p>{{ devices_offline }} dispositivos</p>
             </div>
         </div>
+
+        {% if alerts %}
+        <div class="alert-bar">
+            <h3>Alertas activas: {{ alerts|length }}</h3>
+
+            <ul>
+                {% for alert in alerts %}
+                <li>{{ alert }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% else %}
+        <div class="alert-bar no-alerts">
+            <h3>Sin alertas activas</h3>
+            <p>Todos los sistemas se encuentran operando normalmente.</p>
+        </div>
+        {% endif %}
 
         <h2>Zonas de iluminación</h2>
 
@@ -196,7 +276,47 @@ HTML_TEMPLATE = """
                 {% for zone in zones %}
                 <tr>
                     <td>{{ zone.name }}</td>
-                    <td>{{ zone.occupancy }}</td>
+
+                    <td>
+                        <form
+                            class="occupancy-form"
+                            action="{{ url_for(
+                                'update_occupancy',
+                                zone_name=zone.name
+                            ) }}"
+                            method="post"
+                        >
+                            <select
+                                class="occupancy-select"
+                                name="occupancy"
+                            >
+                                <option
+                                    value="Ocupada"
+                                    {% if zone.occupancy == "Ocupada" %}
+                                    selected
+                                    {% endif %}
+                                >
+                                    Ocupada
+                                </option>
+
+                                <option
+                                    value="Desocupada"
+                                    {% if zone.occupancy == "Desocupada" %}
+                                    selected
+                                    {% endif %}
+                                >
+                                    Desocupada
+                                </option>
+                            </select>
+
+                            <button
+                                class="occupancy-button"
+                                type="submit"
+                            >
+                                Cambiar
+                            </button>
+                        </form>
+                    </td>
 
                     <td>
                         <form
@@ -228,7 +348,13 @@ HTML_TEMPLATE = """
                         </form>
                     </td>
 
-                    <td>{{ zone.status }}</td>
+                    <td>
+                        {% if zone.status == "Operativa" %}
+                        <span class="status-ok">{{ zone.status }}</span>
+                        {% else %}
+                        <span class="status-warning">{{ zone.status }}</span>
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -261,13 +387,41 @@ def is_valid_lighting(lighting):
     return isinstance(lighting, int) and 0 <= lighting <= 100
 
 
+def get_active_alerts():
+    alerts = []
+
+    if DEVICES_OFFLINE > 0:
+        alerts.append(
+            f"{DEVICES_OFFLINE} dispositivos se encuentran offline."
+        )
+
+    for zone in ZONES:
+        if zone["status"] != "Operativa":
+            alerts.append(
+                f'{zone["name"]} requiere atención: {zone["status"]}.'
+            )
+
+        if (
+            zone["occupancy"] == "Desocupada"
+            and zone["lighting"] > 30
+        ):
+            alerts.append(
+                f'{zone["name"]} está desocupada con iluminación '
+                f'al {zone["lighting"]}%.'
+            )
+
+    return alerts
+
+
 @app.route("/")
 def index():
     return render_template_string(
         HTML_TEMPLATE,
         environment=APP_ENV,
         version=APP_VERSION,
-        zones=ZONES
+        zones=ZONES,
+        alerts=get_active_alerts(),
+        devices_offline=DEVICES_OFFLINE
     )
 
 
@@ -294,6 +448,33 @@ def update_lighting(zone_name):
         }), 400
 
     zone["lighting"] = lighting
+
+    return redirect(url_for("index"))
+
+
+@app.route("/zones/<zone_name>/occupancy", methods=["POST"])
+def update_occupancy(zone_name):
+    zone = find_zone(zone_name)
+
+    if zone is None:
+        return jsonify({
+            "error": "Zone not found",
+            "zone": zone_name
+        }), 404
+
+    occupancy = request.form.get("occupancy", "")
+
+    valid_occupancy_values = {
+        "Ocupada",
+        "Desocupada"
+    }
+
+    if occupancy not in valid_occupancy_values:
+        return jsonify({
+            "error": "Occupancy must be Ocupada or Desocupada"
+        }), 400
+
+    zone["occupancy"] = occupancy
 
     return redirect(url_for("index"))
 
@@ -326,6 +507,39 @@ def api_update_lighting(zone_name):
     }), 200
 
 
+@app.route("/api/zones/<zone_name>/occupancy", methods=["PUT"])
+def api_update_occupancy(zone_name):
+    zone = find_zone(zone_name)
+
+    if zone is None:
+        return jsonify({
+            "error": "Zone not found",
+            "zone": zone_name
+        }), 404
+
+    request_data = request.get_json(silent=True) or {}
+    occupancy = request_data.get("occupancy")
+
+    valid_occupancy_values = {
+        "Ocupada",
+        "Desocupada"
+    }
+
+    if occupancy not in valid_occupancy_values:
+        return jsonify({
+            "error": "Occupancy must be Ocupada or Desocupada"
+        }), 400
+
+    zone["occupancy"] = occupancy
+
+    return jsonify({
+        "message": "Occupancy updated successfully",
+        "zone": zone["name"],
+        "occupancy": zone["occupancy"],
+        "environment": APP_ENV
+    }), 200
+
+
 @app.route("/health")
 def health():
     return jsonify({
@@ -338,14 +552,22 @@ def health():
 
 @app.route("/api/status")
 def api_status():
+    alerts = get_active_alerts()
+
     return jsonify({
         "application": "DCS Building Monitoring Simulator",
         "environment": APP_ENV,
         "version": APP_VERSION,
-        "system_status": "operational",
+        "system_status": (
+            "warning"
+            if alerts
+            else "operational"
+        ),
         "controllers_online": 4,
         "devices_total": 125,
-        "devices_offline": 3,
+        "devices_offline": DEVICES_OFFLINE,
+        "active_alerts": len(alerts),
+        "alerts": alerts,
         "zones": ZONES
     }), 200
 
