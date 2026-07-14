@@ -1,7 +1,14 @@
 import os
 from datetime import datetime, timezone
 
-from flask import Flask, jsonify, render_template_string
+from flask import (
+    Flask,
+    jsonify,
+    redirect,
+    render_template_string,
+    request,
+    url_for,
+)
 
 app = Flask(__name__)
 
@@ -106,6 +113,30 @@ HTML_TEMPLATE = """
             font-weight: bold;
         }
 
+        .lighting-form {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .lighting-input {
+            width: 65px;
+            padding: 7px;
+        }
+
+        .update-button {
+            border: none;
+            border-radius: 5px;
+            padding: 8px 12px;
+            background: #2563eb;
+            color: white;
+            cursor: pointer;
+        }
+
+        .update-button:hover {
+            background: #1d4ed8;
+        }
+
         .footer {
             margin-top: 20px;
             color: #555555;
@@ -118,10 +149,12 @@ HTML_TEMPLATE = """
 
         <div class="header">
             <h1>DCS Building Monitoring Simulator</h1>
+
             <p>
                 Ambiente:
                 <span class="environment">{{ environment }}</span>
             </p>
+
             <p>Versión: {{ version }}</p>
         </div>
 
@@ -164,7 +197,37 @@ HTML_TEMPLATE = """
                 <tr>
                     <td>{{ zone.name }}</td>
                     <td>{{ zone.occupancy }}</td>
-                    <td>{{ zone.lighting }}%</td>
+
+                    <td>
+                        <form
+                            class="lighting-form"
+                            action="{{ url_for(
+                                'update_lighting',
+                                zone_name=zone.name
+                            ) }}"
+                            method="post"
+                        >
+                            <input
+                                class="lighting-input"
+                                type="number"
+                                name="lighting"
+                                min="0"
+                                max="100"
+                                value="{{ zone.lighting }}"
+                                required
+                            >
+
+                            <span>%</span>
+
+                            <button
+                                class="update-button"
+                                type="submit"
+                            >
+                                Actualizar
+                            </button>
+                        </form>
+                    </td>
+
                     <td>{{ zone.status }}</td>
                 </tr>
                 {% endfor %}
@@ -183,6 +246,21 @@ HTML_TEMPLATE = """
 """
 
 
+def find_zone(zone_name):
+    return next(
+        (
+            zone
+            for zone in ZONES
+            if zone["name"].lower() == zone_name.lower()
+        ),
+        None
+    )
+
+
+def is_valid_lighting(lighting):
+    return isinstance(lighting, int) and 0 <= lighting <= 100
+
+
 @app.route("/")
 def index():
     return render_template_string(
@@ -191,6 +269,61 @@ def index():
         version=APP_VERSION,
         zones=ZONES
     )
+
+
+@app.route("/zones/<zone_name>/lighting", methods=["POST"])
+def update_lighting(zone_name):
+    zone = find_zone(zone_name)
+
+    if zone is None:
+        return jsonify({
+            "error": "Zone not found",
+            "zone": zone_name
+        }), 404
+
+    try:
+        lighting = int(request.form.get("lighting", ""))
+    except ValueError:
+        return jsonify({
+            "error": "Lighting must be an integer"
+        }), 400
+
+    if not is_valid_lighting(lighting):
+        return jsonify({
+            "error": "Lighting must be between 0 and 100"
+        }), 400
+
+    zone["lighting"] = lighting
+
+    return redirect(url_for("index"))
+
+
+@app.route("/api/zones/<zone_name>/lighting", methods=["PUT"])
+def api_update_lighting(zone_name):
+    zone = find_zone(zone_name)
+
+    if zone is None:
+        return jsonify({
+            "error": "Zone not found",
+            "zone": zone_name
+        }), 404
+
+    request_data = request.get_json(silent=True) or {}
+    lighting = request_data.get("lighting")
+
+    if not is_valid_lighting(lighting):
+        return jsonify({
+            "error": "Lighting must be an integer between 0 and 100"
+        }), 400
+
+    zone["lighting"] = lighting
+
+    return jsonify({
+        "message": "Lighting updated successfully",
+        "zone": zone["name"],
+        "lighting": zone["lighting"],
+        "environment": APP_ENV
+    }), 200
 
 
 @app.route("/health")
