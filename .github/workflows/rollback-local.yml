@@ -1,0 +1,142 @@
+name: Rollback - Local Minikube
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente que se restaurará"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+
+      revision:
+        description: "Revisión destino. Déjalo vacío para volver a la anterior"
+        required: false
+        type: string
+
+jobs:
+  rollback:
+    environment:
+      name: ${{ inputs.environment }}
+
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+
+    steps:
+      - name: Definir variables
+        run: |
+          ENVIRONMENT="${{ inputs.environment }}"
+
+          echo "ENVIRONMENT=$ENVIRONMENT" >> "$GITHUB_ENV"
+          echo "NAMESPACE=web-$ENVIRONMENT" >> "$GITHUB_ENV"
+
+          case "$ENVIRONMENT" in
+            dev)
+              echo "NODE_PORT=30081" >> "$GITHUB_ENV"
+              ;;
+            qa)
+              echo "NODE_PORT=30082" >> "$GITHUB_ENV"
+              ;;
+            prod)
+              echo "NODE_PORT=30083" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "Ambiente no válido"
+              exit 1
+              ;;
+          esac
+
+      - name: Verificar Minikube
+        run: |
+          minikube status
+          kubectl get nodes
+
+      - name: Mostrar estado actual
+        run: |
+          echo "Ambiente: $ENVIRONMENT"
+          echo "Namespace: $NAMESPACE"
+
+          kubectl get deployment devops-web-deployment \
+            -n "$NAMESPACE"
+
+          echo "Imagen actual:"
+
+          kubectl get deployment devops-web-deployment \
+            -n "$NAMESPACE" \
+            -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+          echo
+
+      - name: Mostrar historial
+        run: |
+          kubectl rollout history \
+            deployment/devops-web-deployment \
+            -n "$NAMESPACE"
+
+      - name: Ejecutar rollback
+        run: |
+          REVISION="${{ inputs.revision }}"
+
+          if [ -n "$REVISION" ]; then
+            echo "Restaurando la revisión $REVISION"
+
+            kubectl rollout undo \
+              deployment/devops-web-deployment \
+              -n "$NAMESPACE" \
+              --to-revision="$REVISION"
+          else
+            echo "Restaurando la revisión anterior"
+
+            kubectl rollout undo \
+              deployment/devops-web-deployment \
+              -n "$NAMESPACE"
+          fi
+
+      - name: Verificar rollout
+        run: |
+          kubectl rollout status \
+            deployment/devops-web-deployment \
+            -n "$NAMESPACE" \
+            --timeout=120s
+
+      - name: Mostrar versión restaurada
+        run: |
+          echo "Imagen después del rollback:"
+
+          kubectl get deployment devops-web-deployment \
+            -n "$NAMESPACE" \
+            -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+          echo
+
+          kubectl get pods -n "$NAMESPACE"
+
+      - name: Probar health check
+        run: |
+          URL="http://$(minikube ip):$NODE_PORT/health"
+
+          echo "Probando $URL"
+
+          for intento in 1 2 3 4 5; do
+            if curl --fail --silent "$URL"; then
+              echo
+              echo "Rollback validado correctamente"
+              exit 0
+            fi
+
+            echo "Intento $intento fallido. Esperando..."
+            sleep 5
+          done
+
+          echo "La aplicación restaurada no respondió correctamente"
+          exit 1
