@@ -115,12 +115,39 @@ jobs:
           echo "Imagen: $IMAGE_NAME:$IMAGE_TAG"
           echo "NodePort: $NODE_PORT"
 
-      - name: Verificar herramientas
+      - name: Verificar herramientas e iniciar Minikube
+        shell: bash
         run: |
+          echo "Usuario del runner:"
+          whoami
+
+          echo "Directorio HOME:"
+          echo "$HOME"
+
+          echo "Versiones instaladas:"
           docker --version
           kubectl version --client
           minikube version
+
+          echo "Perfiles de Minikube:"
+          minikube profile list || true
+
+          echo "Contexto actual de Kubernetes:"
+          kubectl config current-context || true
+
+          if ! minikube status >/dev/null 2>&1; then
+            echo "Minikube está detenido. Iniciándolo..."
+            minikube start --driver=docker
+          else
+            echo "Minikube ya está ejecutándose."
+          fi
+
+          kubectl config use-context minikube
+
+          echo "Estado final de Minikube:"
           minikube status
+
+          echo "Nodo disponible:"
           kubectl get nodes
 
       - name: Crear namespace
